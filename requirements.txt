@@ -1,0 +1,4 @@
+google-api-python-client==1.6.7
+oauth2client==4.1.2
+requests==2.18.4
+Pillow==5.2.0

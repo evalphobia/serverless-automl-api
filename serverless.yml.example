@@ -1,0 +1,28 @@
+service: sls-automl-api
+
+provider:
+  name: aws
+  region: ap-northeast-1
+  runtime: python3.6
+  timeout: 60
+
+functions:
+  predict:
+    handler: handler.handler
+    memorySize: 128
+    timeout: 60
+    environment:
+      GOOGLE_AUTOML_PROJECT: <your GCP project id>
+      GOOGLE_AUTOML_MODEL: <AutoML model name>
+      GOOGLE_APPLICATION_JSON: '{"type": "service_account", "private_key_id": "<...>", "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n", "client_email": "example@example.iam.gserviceaccount.com", "client_id": "..."}'
+    events:
+      - http:
+          path: predict
+          method: post
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+
+plugins:
+  - serverless-python-requirements

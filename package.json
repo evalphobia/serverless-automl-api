@@ -1,0 +1,18 @@
+{
+  "name": "sls-automl-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "sls deploy -v",
+    "logs": "sls logs -f automl_api -t",
+    "invoke": "sls invoke -f male --path ./event.json",
+    "local": "sls invoke local -f male --path ./event.json"
+  },
+  "keywords": [],
+  "author": "evalphobia",
+  "license": "MIT",
+  "devDependencies": {
+    "serverless-python-requirements": "^3.3.1 "
+  }
+}
