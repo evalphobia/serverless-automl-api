@@ -1,24 +1,25 @@
-import base64
 import os
 import json
 import requests
-from googleapiclient import discovery
+import struct
+from google.cloud import automl_v1beta1
+from google.oauth2 import service_account
 from oauth2client.client import GoogleCredentials
 from resize import resize
 
 if 'GOOGLE_APPLICATION_JSON' in os.environ:
-    from oauth2client.service_account import ServiceAccountCredentials
     key_dict = json.loads(os.environ['GOOGLE_APPLICATION_JSON'])
-    credentials = ServiceAccountCredentials.from_json_keyfile_dict(key_dict)
+    credentials = service_account.Credentials.from_service_account_info(key_dict)
 else:
     credentials = GoogleCredentials.get_application_default()
 
-ml_service = discovery.build('ml', 'v1', credentials=credentials)
+ml_client = automl_v1beta1.PredictionServiceClient(credentials=credentials)
 
 
 def predicts(params):
     """Run prediction by given image URL."""
-    predict_params = []
+    results = []
+    predict_targets = []
     for i, param in enumerate(params):
         key = str(i)
         if 'key' in param:
@@ -32,42 +33,41 @@ def predicts(params):
             data = _get_file_data(param['file'])
         else:
             continue
-        predict_params.append({'key': key, 'image_bytes': {'b64': data}})
-    if len(predict_params) == 0:
+        predict_targets.append({'key': key, 'payload': {'image': {'image_bytes': data}}})
+    if len(predict_targets) == 0:
         raise Exception('cannot parse parameters: {}'.format(params))
 
-    results = call_prediction_api(predict_params)
+    for i, target in enumerate(predict_targets):
+        result = call_prediction_api(target['payload'])
+        results.append({'key': target['key'], 'response': result.payload})
+
     return parse_results(results)
 
 
 def _get_file_data(path):
     with open(path, 'rb') as ff:
         data = ff.read()
-    return base64.b64encode(resize(data)).decode('utf-8')
+    return resize(data)
 
 
-def _download_data(url, timeout=10):
+def _download_data(url, timeout=30):
     """Download data from given URL."""
     resp = requests.get(url, allow_redirects=False, timeout=timeout)
     if resp.status_code != 200:
         raise Exception('Error on http: [{}], HTTP status: [{}]'.format(url, resp.status_code))
-    return base64.b64encode(resize(resp.content)).decode('utf-8')
+    print('[_download_data] url:[%s] size:[%d]' % (url, len(resp.content)))
+    return resize(resp.content)
 
 
-def call_prediction_api(instances):
-    name = 'projects/{}/models/{}'.format(_get_automl_project(), _get_automl_model())
-    version = _get_automl_version()
-    if version:
-        name += '/versions/{}'.format(version)
-    request_dict = {'instances': instances}
-    request = ml_service.projects().predict(name=name, body=request_dict)
-    return request.execute()  # waits till request is returned
+def call_prediction_api(payload):
+    name = 'projects/{}/locations/{}/models/{}'.format(_get_automl_project(), _get_automl_location(), _get_automl_model())
+    th = '%08x' % struct.unpack('<L', struct.pack('>f', 0.0))[0]
+    params = {'score_threshold': th}
+    return ml_client.predict(name, payload, params)
 
 
 def parse_results(results):
-    results = results['predictions']
     data = {}
-    # data['raw_output'] = results
     data['size'] = len(results)
 
     result_list = []
@@ -76,18 +76,18 @@ def parse_results(results):
         d['key'] = r['key']
         # get key-value pair for lable and score
         scores = {}
-        for i, label in enumerate(r['labels']):
-            scores[label] = r['scores'][i]
+        for i, c in enumerate(r['response']):
+            scores[c.display_name] = c.classification.score
         d['result'] = scores
         # get max score
-        max_score = max(r['scores'])
-        max_idx = r['scores'].index(max_score)
-        d['label'] = r['labels'][max_idx]
-        d['score'] = max_score
+        max_score_label = max(scores, key=scores.get)
+        d['label'] = max_score_label
+        d['score'] = scores[max_score_label]
         # add data
         result_list.append(d)
 
     data['results'] = result_list
+    print('[parse_results]: %s' % json.dumps(data))
     return data
 
 
@@ -103,10 +103,10 @@ def _get_automl_model():
     return ''
 
 
-def _get_automl_version():
-    if 'GOOGLE_AUTOML_VERSION' in os.environ:
-        return os.environ['GOOGLE_AUTOML_VERSION']
-    return ''
+def _get_automl_location():
+    if 'GOOGLE_AUTOML_LOCATION' in os.environ:
+        return os.environ['GOOGLE_AUTOML_LOCATION']
+    return 'us-central1'
 
 
 def _get_automl_files():
